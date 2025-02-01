@@ -1,0 +1,194 @@
+#ifndef SOCKET_HANDLER_HPP
+#define SOCKET_HANDLER_HPP
+
+// System-Header
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
+#include <cstring>
+#include <thread>
+#include <nlohmann/json.hpp>
+#include "eventbus/EventBus.h"
+#include "storage/Message.h"
+
+
+using json = nlohmann::json;
+
+class SocketHandler {
+public:
+    SocketHandler(const std::string& socketPath, EventBus& eventBus)
+        : socketPath_(socketPath), eventBus_(eventBus), serverSocket_(-1)
+    {}
+
+    ~SocketHandler() {
+        if (serverSocket_ != -1) {
+            close(serverSocket_);
+        }
+        // Entferne den Socket-Dateipfad, falls vorhanden.
+        unlink(socketPath_.c_str());
+    }
+
+    // Startet den Listener (blockierend)
+    void run() {
+        // Erstelle einen Unix–Socket
+        serverSocket_ = socket(AF_UNIX, SOCK_STREAM, 0);
+        if (serverSocket_ < 0) {
+            perror("socket");
+            return;
+        }
+
+        sockaddr_un addr;
+        std::memset(&addr, 0, sizeof(addr));
+        addr.sun_family = AF_UNIX;
+        std::strncpy(addr.sun_path, socketPath_.c_str(), sizeof(addr.sun_path) - 1);
+
+        // Entferne ggf. vorhandene Socket-Datei
+        unlink(socketPath_.c_str());
+
+        if (bind(serverSocket_, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
+            perror("bind");
+            return;
+        }
+
+        if (listen(serverSocket_, 5) < 0) {
+            perror("listen");
+            return;
+        }
+
+        // Endlosschleife zum Akzeptieren von Client-Verbindungen
+        while (true) {
+            int clientSocket = accept(serverSocket_, nullptr, nullptr);
+            if (clientSocket < 0) {
+                perror("accept");
+                continue;
+            }
+            // Starte einen neuen Thread zur Bearbeitung der Client-Verbindung
+            std::thread(&SocketHandler::handleClient, this, clientSocket).detach();
+        }
+    }
+
+private:
+    // Bearbeitet einen einzelnen Client
+    void handleClient(int clientSocket) {
+        try {
+            std::string data;
+            char buffer[1024];
+            ssize_t n;
+
+            // Lese die Anfrage (bis zum Socket-Schluss oder maximal 1024 Bytes pro Leseoperation)
+            while ((n = read(clientSocket, buffer, sizeof(buffer))) > 0) {
+                data.append(buffer, n);
+                // Optional: Falls die Nachricht mit '\n' endet, kann man abbrechen.
+                if (data.find('\n') != std::string::npos)
+                    break;
+            }
+            if (data.empty()) {
+                close(clientSocket);
+                return;
+            }
+
+            // Parse die eingehende JSON-Nachricht
+            json j = json::parse(data);
+            std::string eventType = j.value("event", "");
+
+            // Je nach event-Type wird das passende Message-Objekt erstellt,
+            // via EventBus an den StorageHandler gesendet und das Ergebnis
+            // als JSON an den Client zurueckgeschickt.
+            if (eventType == "SET") {
+                SetEventMessage msg;
+                msg.id = j.at("id").get<std::string>();
+                json flags = j.at("flags");
+                msg.persistent = flags.at("persistent").get<bool>();
+                msg.ttl = flags.at("ttl").get<int>();
+                msg.key = j.at("key").get<std::string>();
+                msg.value = j.at("value").get<std::string>();
+                msg.group = j.at("group").get<std::string>();
+
+                auto result = eventBus_.send<SetResponseMessage>(HandlerID::StorageHandler, msg).get();
+
+                json respJson;
+                respJson["id"] = result.id;
+                respJson["response"] = result.response;
+                std::string respStr = respJson.dump();
+                write(clientSocket, respStr.c_str(), respStr.size());
+
+            } else if (eventType == "GET KEY") {
+                GetKeyEventMessage msg;
+                msg.id = j.at("id").get<std::string>();
+                msg.key = j.at("key").get<std::string>();
+
+                auto result = eventBus_.send<GetKeyResponseMessage>(HandlerID::StorageHandler, msg).get();
+
+                json respJson;
+                respJson["id"] = result.id;
+                respJson["response"] = result.response;
+                std::string respStr = respJson.dump();
+                write(clientSocket, respStr.c_str(), respStr.size());
+
+            } else if (eventType == "GET GROUP") {
+                GetGroupEventMessage msg;
+                // Falls "id" fehlt, wird hier ein leerer String verwendet.
+                msg.id = j.value("id", "");
+                msg.group = j.at("group").get<std::string>();
+
+                auto result = eventBus_.send<GetGroupResponseMessage>(HandlerID::StorageHandler, msg).get();
+
+                json respJson;
+                respJson["id"] = result.id;
+                // Baue ein JSON-Array der Key/Value-Paare
+                json arr = json::array();
+                for (const auto& kv : result.response) {
+                    arr.push_back({ {"key", kv.key}, {"value", kv.value} });
+                }
+                respJson["response"] = arr;
+                std::string respStr = respJson.dump();
+                write(clientSocket, respStr.c_str(), respStr.size());
+
+            } else if (eventType == "DELETE KEY") {
+                DeleteKeyEventMessage msg;
+                msg.id = j.at("id").get<std::string>();
+                msg.key = j.at("key").get<std::string>();
+
+                auto result = eventBus_.send<DeleteKeyResponseMessage>(HandlerID::StorageHandler, msg).get();
+
+                json respJson;
+                respJson["id"] = result.id;
+                respJson["response"] = result.response;
+                std::string respStr = respJson.dump();
+                write(clientSocket, respStr.c_str(), respStr.size());
+
+            } else if (eventType == "DELETE GROUP") {
+                DeleteGroupEventMessage msg;
+                msg.id = j.at("id").get<std::string>();
+                msg.group = j.at("group").get<std::string>();
+
+                auto result = eventBus_.send<DeleteGroupResponseMessage>(HandlerID::StorageHandler, msg).get();
+
+                json respJson;
+                respJson["id"] = result.id;
+                respJson["response"] = result.response;
+                std::string respStr = respJson.dump();
+                write(clientSocket, respStr.c_str(), respStr.size());
+
+            } else {
+                // Unbekannter Event-Typ
+                json errorJson;
+                errorJson["error"] = "Unbekannter event type";
+                std::string respStr = errorJson.dump();
+                write(clientSocket, respStr.c_str(), respStr.size());
+            }
+        }
+        catch (std::exception &e) {
+            json errorJson;
+            errorJson["error"] = e.what();
+            std::string respStr = errorJson.dump();
+            write(clientSocket, respStr.c_str(), respStr.size());
+        }
+        close(clientSocket);
+    }
+
+    std::string socketPath_;
+    EventBus& eventBus_;
+    int serverSocket_;
+};
+#endif // SOCKET_HANDLER_HPP

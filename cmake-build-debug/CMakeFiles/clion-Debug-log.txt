@@ -1,0 +1,4 @@
+/root/.cache/JetBrains/RemoteDev/dist/f571ec2d316e3_CLion-2024.3.2/bin/cmake/linux/x64/bin/cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_MAKE_PROGRAM=/root/.cache/JetBrains/RemoteDev/dist/f571ec2d316e3_CLion-2024.3.2/bin/ninja/linux/x64/ninja -G Ninja -S /root/CLionProjects/AdvancedCacheManager -B /root/CLionProjects/AdvancedCacheManager/cmake-build-debug
+-- Configuring done (0.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: /root/CLionProjects/AdvancedCacheManager/cmake-build-debug
