@@ -5,3 +5,7 @@
 /root/CLionProjects/AdvancedCacheManager/cmake-build-debug/CMakeFiles/test.dir
 /root/CLionProjects/AdvancedCacheManager/cmake-build-debug/CMakeFiles/edit_cache.dir
 /root/CLionProjects/AdvancedCacheManager/cmake-build-debug/CMakeFiles/rebuild_cache.dir
+/root/CLionProjects/AdvancedCacheManager/cmake-build-debug/CMakeFiles/list_install_components.dir
+/root/CLionProjects/AdvancedCacheManager/cmake-build-debug/CMakeFiles/install.dir
+/root/CLionProjects/AdvancedCacheManager/cmake-build-debug/CMakeFiles/install/local.dir
+/root/CLionProjects/AdvancedCacheManager/cmake-build-debug/CMakeFiles/install/strip.dir

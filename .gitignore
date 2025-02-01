@@ -1,4 +1,5 @@
 # Build-Verzeichnisse
-build/
-cmake-build-debug/
-cmake-build-release/
+build/*
+cmake-build-debug/*
+cmake-build-release/*
+.idea/*
