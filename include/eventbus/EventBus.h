@@ -85,7 +85,7 @@ public:
     }
 
     template <typename RetMsg>
-    EventBusResult<RetMsg> send(const HandlerID id, Message& msg) {
+    EventBusResult<RetMsg> send(const HandlerID id, const Message& msg) {
         std::lock_guard lock(handlers_.mutex);
 
         const auto itHandler = handlers_.map.find(id);

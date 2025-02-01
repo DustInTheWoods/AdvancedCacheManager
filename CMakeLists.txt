@@ -37,6 +37,8 @@ add_executable(AdvancedCacheManagerTests
         tests/test_sockethandler.cpp
         tests/test_ramhandler.cpp
         tests/test_diskhandler.cpp
+        tests/test_storagehandler.cpp
+        tests/test_complete.cpp
 )
 
 target_include_directories(AdvancedCacheManagerTests

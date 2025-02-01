@@ -5,4 +5,4 @@
 # This file includes the relevant testing commands required for 
 # testing this directory and lists subdirectories to be tested as well.
 add_test([=[MyEventBusTests]=] "/root/CLionProjects/AdvancedCacheManager/cmake-build-debug/AdvancedCacheManagerTests")
-set_tests_properties([=[MyEventBusTests]=] PROPERTIES  _BACKTRACE_TRIPLES "/root/CLionProjects/AdvancedCacheManager/CMakeLists.txt;58;add_test;/root/CLionProjects/AdvancedCacheManager/CMakeLists.txt;0;")
+set_tests_properties([=[MyEventBusTests]=] PROPERTIES  _BACKTRACE_TRIPLES "/root/CLionProjects/AdvancedCacheManager/CMakeLists.txt;60;add_test;/root/CLionProjects/AdvancedCacheManager/CMakeLists.txt;0;")

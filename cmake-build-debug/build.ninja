@@ -117,6 +117,20 @@ build CMakeFiles/AdvancedCacheManagerTests.dir/tests/test_diskhandler.cpp.o: CXX
   OBJECT_DIR = CMakeFiles/AdvancedCacheManagerTests.dir
   OBJECT_FILE_DIR = CMakeFiles/AdvancedCacheManagerTests.dir/tests
 
+build CMakeFiles/AdvancedCacheManagerTests.dir/tests/test_storagehandler.cpp.o: CXX_COMPILER__AdvancedCacheManagerTests_unscanned_Debug /root/CLionProjects/AdvancedCacheManager/tests/test_storagehandler.cpp || cmake_object_order_depends_target_AdvancedCacheManagerTests
+  DEP_FILE = CMakeFiles/AdvancedCacheManagerTests.dir/tests/test_storagehandler.cpp.o.d
+  FLAGS = -g -std=gnu++20 -fdiagnostics-color=always -DGTEST_HAS_PTHREAD=1
+  INCLUDES = -I/root/CLionProjects/AdvancedCacheManager/include
+  OBJECT_DIR = CMakeFiles/AdvancedCacheManagerTests.dir
+  OBJECT_FILE_DIR = CMakeFiles/AdvancedCacheManagerTests.dir/tests
+
+build CMakeFiles/AdvancedCacheManagerTests.dir/tests/test_complete.cpp.o: CXX_COMPILER__AdvancedCacheManagerTests_unscanned_Debug /root/CLionProjects/AdvancedCacheManager/tests/test_complete.cpp || cmake_object_order_depends_target_AdvancedCacheManagerTests
+  DEP_FILE = CMakeFiles/AdvancedCacheManagerTests.dir/tests/test_complete.cpp.o.d
+  FLAGS = -g -std=gnu++20 -fdiagnostics-color=always -DGTEST_HAS_PTHREAD=1
+  INCLUDES = -I/root/CLionProjects/AdvancedCacheManager/include
+  OBJECT_DIR = CMakeFiles/AdvancedCacheManagerTests.dir
+  OBJECT_FILE_DIR = CMakeFiles/AdvancedCacheManagerTests.dir/tests
+
 
 # =============================================================================
 # Link build statements for EXECUTABLE target AdvancedCacheManagerTests
@@ -125,7 +139,7 @@ build CMakeFiles/AdvancedCacheManagerTests.dir/tests/test_diskhandler.cpp.o: CXX
 #############################################
 # Link the executable AdvancedCacheManagerTests
 
-build AdvancedCacheManagerTests: CXX_EXECUTABLE_LINKER__AdvancedCacheManagerTests_Debug CMakeFiles/AdvancedCacheManagerTests.dir/tests/main.cpp.o CMakeFiles/AdvancedCacheManagerTests.dir/tests/test_eventbus.cpp.o CMakeFiles/AdvancedCacheManagerTests.dir/tests/test_sockethandler.cpp.o CMakeFiles/AdvancedCacheManagerTests.dir/tests/test_ramhandler.cpp.o CMakeFiles/AdvancedCacheManagerTests.dir/tests/test_diskhandler.cpp.o | /usr/lib/x86_64-linux-gnu/libgtest.a /usr/lib/x86_64-linux-gnu/libgtest_main.a /usr/lib/x86_64-linux-gnu/libgtest.a
+build AdvancedCacheManagerTests: CXX_EXECUTABLE_LINKER__AdvancedCacheManagerTests_Debug CMakeFiles/AdvancedCacheManagerTests.dir/tests/main.cpp.o CMakeFiles/AdvancedCacheManagerTests.dir/tests/test_eventbus.cpp.o CMakeFiles/AdvancedCacheManagerTests.dir/tests/test_sockethandler.cpp.o CMakeFiles/AdvancedCacheManagerTests.dir/tests/test_ramhandler.cpp.o CMakeFiles/AdvancedCacheManagerTests.dir/tests/test_diskhandler.cpp.o CMakeFiles/AdvancedCacheManagerTests.dir/tests/test_storagehandler.cpp.o CMakeFiles/AdvancedCacheManagerTests.dir/tests/test_complete.cpp.o | /usr/lib/x86_64-linux-gnu/libgtest.a /usr/lib/x86_64-linux-gnu/libgtest_main.a /usr/lib/x86_64-linux-gnu/libgtest.a
   FLAGS = -g
   LINK_LIBRARIES = -lsqlite3  -lpthread  -lrt  /usr/lib/x86_64-linux-gnu/libgtest.a  /usr/lib/x86_64-linux-gnu/libgtest_main.a  /usr/lib/x86_64-linux-gnu/libgtest.a
   OBJECT_DIR = CMakeFiles/AdvancedCacheManagerTests.dir

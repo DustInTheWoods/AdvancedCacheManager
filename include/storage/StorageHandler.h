@@ -48,32 +48,30 @@ public:
         );
     }
 
-    // ------------------------------
-    // Handler-Implementierungen
-    // ------------------------------
 
     // SET-Event: Leitet die Anfrage an RAM und Disk weiter und kombiniert die Ergebnisse.
     SetResponseMessage handleSetEvent(const SetEventMessage& msg) {
-        std::cout << "StorageHandler: Received SET event for key: " << msg.key << std::endl;
-        // Anfrage an den RamHandler senden
-        auto ramResult = eventBus_.send<SetResponseMessage>(HandlerID::RamHandler, msg);
-        // Anfrage an den DiskHandler senden
-        auto diskResult = eventBus_.send<SetResponseMessage>(HandlerID::DiskHandler, msg);
+        if (msg.persistent)
+        {
+            // Anfrage an den DiskHandler senden
+            auto diskResult = eventBus_.send<SetResponseMessage>(HandlerID::DiskHandler, msg);
 
-        // Auf Antworten warten
-        SetResponseMessage ramResp = ramResult.get();
-        SetResponseMessage diskResp = diskResult.get();
+            SetResponseMessage diskResp = diskResult.get();
+            diskResp.id = msg.id;
+            return diskResp;
+        } else
+        {
+            // Anfrage an den RamHandler senden
+            auto ramResult = eventBus_.send<SetResponseMessage>(HandlerID::RamHandler, msg);
 
-        SetResponseMessage resp;
-        resp.id = msg.id;
-        // Nur wenn beide Speicher die SET-Operation erfolgreich bestätigen, wird Erfolg zurückgegeben.
-        resp.response = ramResp.response && diskResp.response;
-        return resp;
+            SetResponseMessage ramResp = ramResult.get();
+            ramResp.id = msg.id;
+            return ramResp;
+        }
     }
 
     // GET KEY-Event: Zuerst im RAM suchen, bei leerer Antwort dann den DiskHandler abfragen.
     GetKeyResponseMessage handleGetKeyEvent(const GetKeyEventMessage& msg) {
-        std::cout << "StorageHandler: Received GET KEY event for key: " << msg.key << std::endl;
         auto ramResult = eventBus_.send<GetKeyResponseMessage>(HandlerID::RamHandler, msg);
         GetKeyResponseMessage ramResp = ramResult.get();
         if (!ramResp.response.empty()) {
@@ -89,7 +87,6 @@ public:
 
     // GET GROUP-Event: Auch hier zuerst RAM, ansonsten Disk.
     GetGroupResponseMessage handleGetGroupEvent(const GetGroupEventMessage& msg) {
-        std::cout << "StorageHandler: Received GET GROUP event for group: " << msg.group << std::endl;
         auto ramResult = eventBus_.send<GetGroupResponseMessage>(HandlerID::RamHandler, msg);
         GetGroupResponseMessage ramResp = ramResult.get();
         if (!ramResp.response.empty()) {
@@ -103,7 +100,6 @@ public:
 
     // DELETE KEY-Event: Leitet das Löschen an beide Speicher weiter.
     DeleteKeyResponseMessage handleDeleteKeyEvent(const DeleteKeyEventMessage& msg) {
-        std::cout << "StorageHandler: Received DELETE KEY event for key: " << msg.key << std::endl;
         auto ramResult = eventBus_.send<DeleteKeyResponseMessage>(HandlerID::RamHandler, msg);
         auto diskResult = eventBus_.send<DeleteKeyResponseMessage>(HandlerID::DiskHandler, msg);
 
@@ -119,7 +115,6 @@ public:
 
     // DELETE GROUP-Event: Leitet die Anfrage an beide Speicher weiter und fasst die Ergebnisse zusammen.
     DeleteGroupResponseMessage handleDeleteGroupEvent(const DeleteGroupEventMessage& msg) {
-        std::cout << "StorageHandler: Received DELETE GROUP event for group: " << msg.group << std::endl;
         auto ramResult = eventBus_.send<DeleteGroupResponseMessage>(HandlerID::RamHandler, msg);
         auto diskResult = eventBus_.send<DeleteGroupResponseMessage>(HandlerID::DiskHandler, msg);
 
