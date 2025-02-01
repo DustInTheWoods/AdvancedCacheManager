@@ -1,0 +1,11 @@
+{
+  "ram": {
+    "maxSizeMB": 10
+  },
+  "disk": {
+    "dbFile": "disk_store.db"
+  },
+  "socket": {
+    "socketPath": "/tmp/socket"
+  }
+}

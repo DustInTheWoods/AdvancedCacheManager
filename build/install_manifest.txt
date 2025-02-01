@@ -1,0 +1,2 @@
+/root/CLionProjects/AdvancedCacheManager/build/_CPack_Packages/Linux/TGZ/AdvancedCacheManager-1.0.0-Linux/bin/AdvancedCacheManager
+/root/CLionProjects/AdvancedCacheManager/build/_CPack_Packages/Linux/TGZ/AdvancedCacheManager-1.0.0-Linux/etc/AdvancedCacheManager/config.json

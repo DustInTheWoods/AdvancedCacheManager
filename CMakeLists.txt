@@ -4,7 +4,7 @@ project(AdvancedCacheManager LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Finde benötigte Pakete (z. B. nlohmann_json und GTest)
+# Finde benötigte Pakete
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(GTest REQUIRED)
 
@@ -24,7 +24,7 @@ target_link_libraries(AdvancedCacheManager
         rt
 )
 
-# Test-Executable
+# Test-Executable (wird für den Release-Paket nicht installiert)
 add_executable(AdvancedCacheManagerTests
         tests/main.cpp
         tests/test_eventbus.cpp
@@ -48,9 +48,25 @@ target_link_libraries(AdvancedCacheManagerTests
         nlohmann_json::nlohmann_json
 )
 
-# CTest-Integration
+# CTest-Integration (optional)
 enable_testing()
 add_test(NAME AdvancedCacheManagerTests COMMAND AdvancedCacheManagerTests)
 
 # Konfigurationsdatei in das Build-Verzeichnis kopieren
 configure_file(${CMAKE_SOURCE_DIR}/config.json ${CMAKE_BINARY_DIR}/config.json COPYONLY)
+
+# Installationsregeln für Release-Paket:
+install(TARGETS AdvancedCacheManager
+        RUNTIME DESTINATION bin
+)
+
+install(FILES ${CMAKE_BINARY_DIR}/config.json
+        DESTINATION etc/AdvancedCacheManager
+)
+
+# CPack Konfiguration für ein tar.gz-Paket
+set(CPACK_PACKAGE_NAME "AdvancedCacheManager")
+set(CPACK_PACKAGE_VERSION "1.0.0")
+set(CPACK_GENERATOR "TGZ")
+set(CPACK_PACKAGE_CONTACT "deine.email@domain.de")
+include(CPack)
