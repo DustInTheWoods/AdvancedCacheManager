@@ -4,33 +4,27 @@ project(AdvancedCacheManager LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# ------------------------------------------------------------------------------------
-# 1) Anwendung "AdvancedCacheManager"
-# ------------------------------------------------------------------------------------
+# Finde benötigte Pakete (z. B. nlohmann_json und GTest)
+find_package(nlohmann_json CONFIG REQUIRED)
+find_package(GTest REQUIRED)
+
+# Hauptanwendung
 add_executable(AdvancedCacheManager
         src/main.cpp
 )
 
 target_include_directories(AdvancedCacheManager
-        PUBLIC include
+        PUBLIC ${CMAKE_SOURCE_DIR}/include
 )
 
 target_link_libraries(AdvancedCacheManager
         sqlite3
-        nlohmann_json
+        nlohmann_json::nlohmann_json
         pthread
         rt
 )
 
-# ------------------------------------------------------------------------------------
-# 2) GoogleTest suchen und binden
-# ------------------------------------------------------------------------------------
-# Diese Zeilen suchen ein installiertes GoogleTest-Paket auf deinem System.
-find_package(GTest REQUIRED)
-
-# ------------------------------------------------------------------------------------
-# 3) Test-Executable "AdvancedCacheManagerTests"
-# ------------------------------------------------------------------------------------
+# Test-Executable
 add_executable(AdvancedCacheManagerTests
         tests/main.cpp
         tests/test_eventbus.cpp
@@ -42,7 +36,7 @@ add_executable(AdvancedCacheManagerTests
 )
 
 target_include_directories(AdvancedCacheManagerTests
-        PUBLIC include
+        PUBLIC ${CMAKE_SOURCE_DIR}/include
 )
 
 target_link_libraries(AdvancedCacheManagerTests
@@ -51,10 +45,12 @@ target_link_libraries(AdvancedCacheManagerTests
         rt
         GTest::gtest
         GTest::gtest_main
+        nlohmann_json::nlohmann_json
 )
 
-# ------------------------------------------------------------------------------------
-# 4) CTest-Integration
-# ------------------------------------------------------------------------------------
+# CTest-Integration
 enable_testing()
-add_test(NAME MyEventBusTests COMMAND AdvancedCacheManagerTests)
+add_test(NAME AdvancedCacheManagerTests COMMAND AdvancedCacheManagerTests)
+
+# Konfigurationsdatei in das Build-Verzeichnis kopieren
+configure_file(${CMAKE_SOURCE_DIR}/config.json ${CMAKE_BINARY_DIR}/config.json COPYONLY)
