@@ -1,0 +1,4 @@
+# Build-Verzeichnisse
+build/
+cmake-build-debug/
+cmake-build-release/
