@@ -5,41 +5,34 @@
 #include <stdexcept>
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <filesystem>
 
-// Struktur, die die Konfiguration speichert.
+namespace fs = std::filesystem;
+
 struct Config {
-    int maxSizeMB;         // Maximale RAM-Größe in MB
-    std::string dbFile;    // Pfad zur SQLite-Datenbankdatei
-    std::string socketPath; // Pfad zum Unix-Socket
+    int maxSizeMB;
+    std::string dbFile;
+    std::string socketPath;
 };
 
 class ConfigHandler {
 public:
-    // Konstruktor, der die Konfiguration aus der angegebenen Datei lädt.
     explicit ConfigHandler(const std::string& configFile) {
-        std::ifstream ifs(configFile);
+        fs::path absPath = fs::absolute(configFile);
+
+        std::ifstream ifs(absPath);
         if (!ifs.is_open()) {
-            throw std::runtime_error("Could not open configuration file: " + configFile);
+            throw std::runtime_error("Could not open configuration file: " + absPath.string());
         }
 
         nlohmann::json j;
-        try {
-            ifs >> j;
-        } catch (const std::exception& ex) {
-            throw std::runtime_error("Error parsing JSON from config file: " + std::string(ex.what()));
-        }
+        ifs >> j;
 
-        // Setze die Konfiguration; hier wird vorausgesetzt, dass die Keys existieren.
-        try {
-            config_.maxSizeMB = j.at("ram").at("maxSizeMB").get<int>();
-            config_.dbFile = j.at("disk").at("dbFile").get<std::string>();
-            config_.socketPath = j.at("socket").at("socketPath").get<std::string>();
-        } catch (const std::exception& ex) {
-            throw std::runtime_error("Error reading config values: " + std::string(ex.what()));
-        }
+        config_.maxSizeMB = j.at("ram").at("maxSizeMB").get<int>();
+        config_.dbFile = fs::absolute(j.at("disk").at("dbFile").get<std::string>()).string();
+        config_.socketPath = fs::absolute(j.at("socket").at("socketPath").get<std::string>()).string();
     }
 
-    // Gibt die geladene Konfiguration zurück.
     const Config& getConfig() const {
         return config_;
     }

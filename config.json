@@ -3,9 +3,9 @@
     "maxSizeMB": 10
   },
   "disk": {
-    "dbFile": "disk_store.db"
+    "dbFile": "db/disk_store.db"
   },
   "socket": {
-    "socketPath": "/tmp/socket"
+    "socketPath": "socket/cache_socket"
   }
 }
