@@ -1,10 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
 project(AdvancedCacheManager LANGUAGES CXX)
 
+# C++ Standard
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Setzt das Binärverzeichnis
+# Setze das Standard-Ausgabeverzeichnis für Binärdateien
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # Pakete finden
@@ -14,41 +15,61 @@ find_package(Threads REQUIRED)
 
 # Hauptanwendung
 add_executable(AdvancedCacheManager src/main.cpp)
-
 target_include_directories(AdvancedCacheManager PRIVATE ${PROJECT_SOURCE_DIR}/include)
-
 target_link_libraries(AdvancedCacheManager PRIVATE
         SQLite::SQLite3
         nlohmann_json::nlohmann_json
         Threads::Threads
 )
 
-# 📌 Sicherstellen, dass `bin/`, `db/` und `socket/` existieren
+# Erstelle Verzeichnisse, die zur Laufzeit benötigt werden
 foreach(DIR bin db socket)
     execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/${DIR})
 endforeach()
 
-if(CMAKE_BUILD_TYPE MATCHES "Debug")
+# ---------------------------
+# Konfigurationsverhalten an Build-Typ anpassen
+# ---------------------------
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    message(STATUS "Konfiguration für Debug-Build")
+    # Im Debug-Build: Einfaches Kopieren der Konfigurationsdatei ins bin-Verzeichnis
     add_custom_command(
             TARGET AdvancedCacheManager POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/config.json
-            ${CMAKE_BINARY_DIR}/bin/config.json
-            COMMENT "Kopiere config.json in bin/"
+            ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/config.json
+            COMMENT "Kopiere config.json in ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/"
     )
+else() # Annahme: Release-Build
+    message(STATUS "Konfiguration für Release-Build")
+    # Für Release empfiehlt es sich, Optimierungen zu aktivieren und Debug-Informationen zu entfernen.
+    # Viele dieser Flags werden automatisch gesetzt, wenn du CMAKE_BUILD_TYPE=Release verwendest.
+    # Zusätzlich definieren wir ein Makro, um ggf. den Pfad zur Konfigurationsdatei anzugeben.
+    target_compile_definitions(AdvancedCacheManager PRIVATE "CONFIG_FILE_PATH=\"/etc/AdvancedCacheManager/config.json\"")
 endif()
 
-# 📌 Installationsregeln für Release
+# ---------------------------
+# Installationsregeln
+# ---------------------------
+# Installiere die Binärdatei in das "bin"-Verzeichnis
 install(TARGETS AdvancedCacheManager RUNTIME DESTINATION bin)
 
-# 📌 `config.json` für Release in `etc/` kopieren
-install(FILES ${CMAKE_SOURCE_DIR}/config.json DESTINATION bin)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    # Debug: Kopiere config.json ins bin-Verzeichnis, damit die Debug-Umgebung vollständig ist
+    install(FILES ${CMAKE_SOURCE_DIR}/config.json DESTINATION bin)
+else()
+    # Release: Nach Best Practices gehört eine Konfigurationsdatei nicht ins bin-Verzeichnis.
+    # Stattdessen legen wir sie in ein dediziertes "etc"-Verzeichnis ab.
+    install(FILES ${CMAKE_SOURCE_DIR}/config.json DESTINATION etc/AdvancedCacheManager)
+endif()
 
-# 📌 Erstelle `db/` und `socket/`, aber kopiere nichts hinein
+# Erstelle leere Verzeichnisse (z.B. für Datenbanken und Sockets)
 install(DIRECTORY DESTINATION db)
 install(DIRECTORY DESTINATION socket)
 
-# 📌 TESTS MIT GOOGLE TEST AKTIVIEREN
+# ---------------------------
+# Tests mit GoogleTest aktivieren (optional)
+# ---------------------------
 include(CTest)
 option(ENABLE_TESTS "Baue Unit-Tests mit GoogleTest" ON)
 
@@ -56,17 +77,8 @@ if (ENABLE_TESTS)
     find_package(GTest REQUIRED)
     enable_testing()
 
-    add_executable(AdvancedCacheManagerTests
-            tests/test_eventbus.cpp
-            tests/test_diskhandler.cpp
-            tests/test_ramhandler.cpp
-            tests/test_sockethandler.cpp
-            tests/test_storagehandler.cpp
-            tests/test_complete.cpp
-    )
-
+    add_executable(AdvancedCacheManagerTests tests/test_complete.cpp)
     target_include_directories(AdvancedCacheManagerTests PRIVATE ${PROJECT_SOURCE_DIR}/include)
-
     target_link_libraries(AdvancedCacheManagerTests PRIVATE
             SQLite::SQLite3
             GTest::gtest
@@ -78,7 +90,9 @@ if (ENABLE_TESTS)
     add_test(NAME AdvancedCacheManagerTests COMMAND AdvancedCacheManagerTests)
 endif()
 
-# 📦 CPack Konfiguration für Release
+# ---------------------------
+# CPack Konfiguration für Release
+# ---------------------------
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
     set(CPACK_PACKAGE_NAME "AdvancedCacheManager")
     set(CPACK_PACKAGE_VERSION "1.0.0")

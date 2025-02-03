@@ -22,6 +22,8 @@ using EvictionIterator = std::multimap<Clock::time_point, std::string>::iterator
 // Struktur, die einen Eintrag im RAM speichert
 struct RamEntry {
     std::string value;
+    // Gruppe für spätere suche
+    std::string group;
     // Zeitpunkt der Einfügung (für Eviction)
     Clock::time_point insertionTime;
     // Ablaufzeitpunkt; falls TTL <= 0, wird expirationTime auf einen weit entfernten Zeitpunkt gesetzt.
@@ -125,6 +127,7 @@ private:
         RamEntry entry;
         entry.value = msg.value;
         entry.insertionTime = now;
+        entry.group = msg.group;
         if (msg.ttl > 0) {
             entry.expirationTime = now + std::chrono::seconds(msg.ttl);
         } else {
@@ -174,11 +177,11 @@ private:
         std::lock_guard<std::mutex> lock(mutex_);
         GetGroupResponseMessage resp;
         resp.id = msg.id;
-        std::string prefix = msg.group + ":";
+
         auto now = Clock::now();
         // Durchlaufe alle Einträge im Store (Optimierung: Für sehr große Stores könnte ein zusätzlicher Index helfen)
         for (auto it = store_.begin(); it != store_.end(); ) {
-            if (it->first.rfind(prefix, 0) == 0) {
+            if (it->second.group == msg.group) {
                 if (now < it->second.expirationTime) {
                     resp.response.push_back({ it->first, it->second.value });
                     ++it;
@@ -218,9 +221,9 @@ private:
         DeleteGroupResponseMessage resp;
         resp.id = msg.id;
         int count = 0;
-        std::string prefix = msg.group + ":";
+
         for (auto it = store_.begin(); it != store_.end(); ) {
-            if (it->first.rfind(prefix, 0) == 0) {
+            if (it->second.group == msg.group) {
                 currentUsage_ -= (it->first.size() + it->second.value.size());
                 evictionQueue_.erase(it->second.evictionIt);
                 it = store_.erase(it);

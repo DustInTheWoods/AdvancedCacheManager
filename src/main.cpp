@@ -11,7 +11,7 @@ namespace fs = std::filesystem;
 
 int main(int argc, char** argv) {
     // Standard-Konfigurationsdatei ist "config.json"
-    fs::path configFile = fs::absolute("bin/config.json");
+    fs::path configFile = fs::absolute("etc/AdvancedCacheManager/config.json");
 
     // Falls ein alternativer Pfad über die Kommandozeile übergeben wurde, nutze diesen
     if (argc > 1) {

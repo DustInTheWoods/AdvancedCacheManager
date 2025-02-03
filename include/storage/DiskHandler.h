@@ -56,7 +56,8 @@ public:
         // Erstelle die Tabelle, falls sie noch nicht existiert
         const char* createTableSQL = "CREATE TABLE IF NOT EXISTS store ("
                                      "key TEXT PRIMARY KEY, "
-                                     "value TEXT"
+                                     "value TEXT, "
+                                     "group_name TEXT"
                                      ");";
         char* errMsg = nullptr;
         rc = sqlite3_exec(db_, createTableSQL, nullptr, nullptr, &errMsg);
@@ -125,9 +126,10 @@ private:
         }
 
         try {
-            SQLiteStmt stmt(db_, "INSERT OR REPLACE INTO store (key, value) VALUES (?, ?);");
+            SQLiteStmt stmt(db_, "INSERT OR REPLACE INTO store (key, value, group_name) VALUES (?, ?, ?);");
             sqlite3_bind_text(stmt.get(), 1, msg.key.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(stmt.get(), 2, msg.value.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt.get(), 2, msg.value.c_str(), -1, SQLITE_TRANSIENT);;
+            sqlite3_bind_text(stmt.get(), 3, msg.group.c_str(), -1, SQLITE_TRANSIENT);
 
             rc = sqlite3_step(stmt.get());
             if (rc != SQLITE_DONE) {
@@ -178,9 +180,8 @@ private:
     GetGroupResponseMessage handleGetGroupEvent(const GetGroupEventMessage& msg) {
         std::lock_guard<std::mutex> lock(mutex_);
         // Annahme: Schlüssel haben das Format "group:key"
-        std::string pattern = msg.group + ":%";
-        SQLiteStmt stmt(db_, "SELECT key, value FROM store WHERE key LIKE ?;");
-        sqlite3_bind_text(stmt.get(), 1, pattern.c_str(), -1, SQLITE_TRANSIENT);
+        SQLiteStmt stmt(db_, "SELECT key, value FROM store WHERE group_name = ?;");
+        sqlite3_bind_text(stmt.get(), 1, msg.group.c_str(), -1, SQLITE_TRANSIENT);
 
         GetGroupResponseMessage resp;
         resp.id = msg.id;
@@ -223,9 +224,8 @@ private:
     DeleteGroupResponseMessage handleDeleteGroupEvent(const DeleteGroupEventMessage& msg) {
         std::lock_guard<std::mutex> lock(mutex_);
         // Annahme: Schlüssel haben das Format "group:key"
-        std::string pattern = msg.group + ":%";
-        SQLiteStmt stmt(db_, "DELETE FROM store WHERE key LIKE ?;");
-        sqlite3_bind_text(stmt.get(), 1, pattern.c_str(), -1, SQLITE_TRANSIENT);
+        SQLiteStmt stmt(db_, "DELETE FROM store WHERE group_name = ?;");
+        sqlite3_bind_text(stmt.get(), 1, msg.group.c_str(), -1, SQLITE_TRANSIENT);
         int rc = sqlite3_step(stmt.get());
         if (rc != SQLITE_DONE) {
             std::cerr << "DiskHandler: Fehler beim Ausführen des DELETE GROUP: " << sqlite3_errmsg(db_) << std::endl;

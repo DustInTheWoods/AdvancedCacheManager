@@ -62,6 +62,8 @@ public:
                 perror("accept");
                 continue;
             }
+
+            std::cout << "new Client connection,  " << clientSocket << std::endl;
             // Starte einen neuen Thread zur Bearbeitung der Client-Verbindung
             std::thread(&SocketHandler::handleClient, this, clientSocket).detach();
         }
@@ -86,6 +88,7 @@ private:
                 close(clientSocket);
                 return;
             }
+            std::cout << "Received Message: " << data;
 
             // Parse die eingehende JSON-Nachricht
             json j = json::parse(data);
@@ -110,6 +113,8 @@ private:
                 respJson["id"] = result.id;
                 respJson["response"] = result.response;
                 std::string respStr = respJson.dump();
+
+                std::cout << "Sending response: " << respStr << std::endl;
                 write(clientSocket, respStr.c_str(), respStr.size());
 
             } else if (eventType == "GET KEY") {
@@ -123,6 +128,8 @@ private:
                 respJson["id"] = result.id;
                 respJson["response"] = result.response;
                 std::string respStr = respJson.dump();
+
+                std::cout << "Sending response: " << respStr << std::endl;
                 write(clientSocket, respStr.c_str(), respStr.size());
 
             } else if (eventType == "GET GROUP") {
@@ -142,6 +149,8 @@ private:
                 }
                 respJson["response"] = arr;
                 std::string respStr = respJson.dump();
+
+                std::cout << "Sending response: " << respStr << std::endl;
                 write(clientSocket, respStr.c_str(), respStr.size());
 
             } else if (eventType == "DELETE KEY") {
@@ -155,6 +164,8 @@ private:
                 respJson["id"] = result.id;
                 respJson["response"] = result.response;
                 std::string respStr = respJson.dump();
+
+                std::cout << "Sending response: " << respStr << std::endl;
                 write(clientSocket, respStr.c_str(), respStr.size());
 
             } else if (eventType == "DELETE GROUP") {
@@ -168,6 +179,8 @@ private:
                 respJson["id"] = result.id;
                 respJson["response"] = result.response;
                 std::string respStr = respJson.dump();
+
+                std::cout << "Sending response: " << respStr << std::endl;
                 write(clientSocket, respStr.c_str(), respStr.size());
 
             } else {
@@ -182,6 +195,8 @@ private:
             json errorJson;
             errorJson["error"] = e.what();
             std::string respStr = errorJson.dump();
+
+            std::cout << "Sending response: " << respStr << std::endl;
             write(clientSocket, respStr.c_str(), respStr.size());
         }
         close(clientSocket);
