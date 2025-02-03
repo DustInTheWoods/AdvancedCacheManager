@@ -70,137 +70,144 @@ public:
     }
 
 private:
-    // Bearbeitet einen einzelnen Client
-    void handleClient(int clientSocket) {
-        try {
+// Bearbeitet einen einzelnen Client und hält die Verbindung offen,
+// bis der Client diese explizit schließt oder ein Fehler auftritt.
+void handleClient(int clientSocket) {
+    try {
+        while (true) {
             std::string data;
             char buffer[1024];
             ssize_t n;
 
             // Lese die Anfrage (bis zum Socket-Schluss oder maximal 1024 Bytes pro Leseoperation)
+            // Wir beenden die Lese-Schleife, sobald ein Newline ('\n') im Datenstrom auftaucht.
             while ((n = read(clientSocket, buffer, sizeof(buffer))) > 0) {
                 data.append(buffer, n);
-                // Optional: Falls die Nachricht mit '\n' endet, kann man abbrechen.
                 if (data.find('\n') != std::string::npos)
                     break;
             }
-            if (data.empty()) {
-                close(clientSocket);
-                return;
+
+            // Falls n <= 0 ist oder gar nichts gelesen wurde, hat der Client die Verbindung beendet
+            if (n <= 0 || data.empty()) {
+                std::cout << "Client hat die Verbindung beendet oder es ist ein Fehler aufgetreten." << std::endl;
+                break;
             }
-            std::cout << "Received Message: " << data;
 
-            // Parse die eingehende JSON-Nachricht
-            json j = json::parse(data);
-            std::string eventType = j.value("event", "");
+            std::cout << "Received Message: " << data.substr(0, 100) << "..." << std::endl;
 
-            // Je nach event-Type wird das passende Message-Objekt erstellt,
-            // via EventBus an den StorageHandler gesendet und das Ergebnis
-            // als JSON an den Client zurueckgeschickt.
-            if (eventType == "SET") {
-                SetEventMessage msg;
-                msg.id = j.at("id").get<std::string>();
-                json flags = j.at("flags");
-                msg.persistent = flags.at("persistent").get<bool>();
-                msg.ttl = flags.at("ttl").get<int>();
-                msg.key = j.at("key").get<std::string>();
-                msg.value = j.at("value").get<std::string>();
-                msg.group = j.at("group").get<std::string>();
+            // Bearbeite die empfangene Nachricht
+            try {
+                json j = json::parse(data);
+                std::string eventType = j.value("event", "");
 
-                auto result = eventBus_.send<SetResponseMessage>(HandlerID::StorageHandler, msg).get();
+                if (eventType == "SET") {
+                    SetEventMessage msg;
+                    msg.id = j.at("id").get<std::string>();
+                    json flags = j.at("flags");
+                    msg.persistent = flags.at("persistent").get<bool>();
+                    msg.ttl = flags.at("ttl").get<int>();
+                    msg.key = j.at("key").get<std::string>();
+                    msg.value = j.at("value").get<std::string>();
+                    msg.group = j.at("group").get<std::string>();
 
-                json respJson;
-                respJson["id"] = result.id;
-                respJson["response"] = result.response;
-                std::string respStr = respJson.dump();
+                    auto result = eventBus_.send<SetResponseMessage>(HandlerID::StorageHandler, msg).get();
 
-                std::cout << "Sending response: " << respStr << std::endl;
-                write(clientSocket, respStr.c_str(), respStr.size());
+                    json respJson;
+                    respJson["id"] = result.id;
+                    respJson["response"] = result.response;
+                    std::string respStr = respJson.dump()+ "\n";
 
-            } else if (eventType == "GET KEY") {
-                GetKeyEventMessage msg;
-                msg.id = j.at("id").get<std::string>();
-                msg.key = j.at("key").get<std::string>();
+                    std::cout << "Sending response: " << respStr.substr(0, 100) << "..." << std::endl;
+                    write(clientSocket, respStr.c_str(), respStr.size());
 
-                auto result = eventBus_.send<GetKeyResponseMessage>(HandlerID::StorageHandler, msg).get();
+                } else if (eventType == "GET KEY") {
+                    GetKeyEventMessage msg;
+                    msg.id = j.at("id").get<std::string>();
+                    msg.key = j.at("key").get<std::string>();
 
-                json respJson;
-                respJson["id"] = result.id;
-                respJson["response"] = result.response;
-                std::string respStr = respJson.dump();
+                    auto result = eventBus_.send<GetKeyResponseMessage>(HandlerID::StorageHandler, msg).get();
 
-                std::cout << "Sending response: " << respStr << std::endl;
-                write(clientSocket, respStr.c_str(), respStr.size());
+                    json respJson;
+                    respJson["id"] = result.id;
+                    respJson["response"] = result.response;
+                    std::string respStr = respJson.dump()+ "\n";
 
-            } else if (eventType == "GET GROUP") {
-                GetGroupEventMessage msg;
-                // Falls "id" fehlt, wird hier ein leerer String verwendet.
-                msg.id = j.value("id", "");
-                msg.group = j.at("group").get<std::string>();
+                    std::cout << "Sending response: " << respStr.substr(0, 100) << "..." << std::endl;
+                    write(clientSocket, respStr.c_str(), respStr.size());
 
-                auto result = eventBus_.send<GetGroupResponseMessage>(HandlerID::StorageHandler, msg).get();
+                } else if (eventType == "GET GROUP") {
+                    GetGroupEventMessage msg;
+                    msg.id = j.value("id", "");
+                    msg.group = j.at("group").get<std::string>();
 
-                json respJson;
-                respJson["id"] = result.id;
-                // Baue ein JSON-Array der Key/Value-Paare
-                json arr = json::array();
-                for (const auto& kv : result.response) {
-                    arr.push_back({ {"key", kv.key}, {"value", kv.value} });
+                    auto result = eventBus_.send<GetGroupResponseMessage>(HandlerID::StorageHandler, msg).get();
+
+                    json respJson;
+                    respJson["id"] = result.id;
+                    json arr = json::array();
+                    for (const auto& kv : result.response) {
+                        arr.push_back({ {"key", kv.key}, {"value", kv.value} });
+                    }
+                    respJson["response"] = arr;
+                    std::string respStr = respJson.dump()+ "\n";
+
+                    std::cout << "Sending response: " << respStr.substr(0, 100) << "..." << std::endl;
+                    write(clientSocket, respStr.c_str(), respStr.size());
+
+                } else if (eventType == "DELETE KEY") {
+                    DeleteKeyEventMessage msg;
+                    msg.id = j.at("id").get<std::string>();
+                    msg.key = j.at("key").get<std::string>();
+
+                    auto result = eventBus_.send<DeleteKeyResponseMessage>(HandlerID::StorageHandler, msg).get();
+
+                    json respJson;
+                    respJson["id"] = result.id;
+                    respJson["response"] = result.response;
+                    std::string respStr = respJson.dump()+ "\n";
+
+                    std::cout << "Sending response: " << respStr.substr(0, 100) << "..." << std::endl;
+                    write(clientSocket, respStr.c_str(), respStr.size());
+
+                } else if (eventType == "DELETE GROUP") {
+                    DeleteGroupEventMessage msg;
+                    msg.id = j.at("id").get<std::string>();
+                    msg.group = j.at("group").get<std::string>();
+
+                    auto result = eventBus_.send<DeleteGroupResponseMessage>(HandlerID::StorageHandler, msg).get();
+
+                    json respJson;
+                    respJson["id"] = result.id;
+                    respJson["response"] = result.response;
+                    std::string respStr = respJson.dump()+ "\n";
+
+                    std::cout << "Sending response: " << respStr.substr(0, 100) << "..." << std::endl;
+                    write(clientSocket, respStr.c_str(), respStr.size());
+
+                } else {
+                    // Unbekannter Event-Typ
+                    json errorJson;
+                    errorJson["error"] = "Unbekannter event type";
+                    std::string respStr = errorJson.dump()+ "\n";
+                    write(clientSocket, respStr.c_str(), respStr.size());
                 }
-                respJson["response"] = arr;
-                std::string respStr = respJson.dump();
-
-                std::cout << "Sending response: " << respStr << std::endl;
-                write(clientSocket, respStr.c_str(), respStr.size());
-
-            } else if (eventType == "DELETE KEY") {
-                DeleteKeyEventMessage msg;
-                msg.id = j.at("id").get<std::string>();
-                msg.key = j.at("key").get<std::string>();
-
-                auto result = eventBus_.send<DeleteKeyResponseMessage>(HandlerID::StorageHandler, msg).get();
-
-                json respJson;
-                respJson["id"] = result.id;
-                respJson["response"] = result.response;
-                std::string respStr = respJson.dump();
-
-                std::cout << "Sending response: " << respStr << std::endl;
-                write(clientSocket, respStr.c_str(), respStr.size());
-
-            } else if (eventType == "DELETE GROUP") {
-                DeleteGroupEventMessage msg;
-                msg.id = j.at("id").get<std::string>();
-                msg.group = j.at("group").get<std::string>();
-
-                auto result = eventBus_.send<DeleteGroupResponseMessage>(HandlerID::StorageHandler, msg).get();
-
-                json respJson;
-                respJson["id"] = result.id;
-                respJson["response"] = result.response;
-                std::string respStr = respJson.dump();
-
-                std::cout << "Sending response: " << respStr << std::endl;
-                write(clientSocket, respStr.c_str(), respStr.size());
-
-            } else {
-                // Unbekannter Event-Typ
+            }
+            catch (const std::exception &e) {
                 json errorJson;
-                errorJson["error"] = "Unbekannter event type";
-                std::string respStr = errorJson.dump();
+                errorJson["error"] = e.what();
+                std::string respStr = errorJson.dump() + "\n";
+
+                std::cout << "Sending error response: " << respStr.substr(0, 100) << "..." << std::endl;
                 write(clientSocket, respStr.c_str(), respStr.size());
             }
         }
-        catch (std::exception &e) {
-            json errorJson;
-            errorJson["error"] = e.what();
-            std::string respStr = errorJson.dump();
-
-            std::cout << "Sending response: " << respStr << std::endl;
-            write(clientSocket, respStr.c_str(), respStr.size());
-        }
-        close(clientSocket);
     }
+    catch (std::exception &e) {
+        std::cerr << "Fehler in handleClient: " << e.what() << std::endl;
+    }
+    // Schließe den Socket, wenn die Schleife beendet wird
+    close(clientSocket);
+}
 
     std::string socketPath_;
     EventBus& eventBus_;

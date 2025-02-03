@@ -95,7 +95,7 @@ endif()
 # ---------------------------
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
     set(CPACK_PACKAGE_NAME "AdvancedCacheManager")
-    set(CPACK_PACKAGE_VERSION "1.0.0")
+    set(CPACK_PACKAGE_VERSION "1.0.1")
     set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-Linux")
     set(CPACK_GENERATOR "TGZ")
     set(CPACK_PACKAGE_CONTACT "Dustin.Imholze@icloud.com")

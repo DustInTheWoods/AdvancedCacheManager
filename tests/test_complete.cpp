@@ -41,7 +41,7 @@ std::string sendRequest(const std::string& socketPath, const std::string& reques
         std::exit(EXIT_FAILURE);
     }
 
-    // Füge ein Newline-Zeichen hinzu, falls der Server dies als Trenner erwartet.
+    // Füge ein Newline-Zeichen hinzu, falls der Server es als Nachrichtenende erwartet.
     std::string reqWithNewline = request + "\n";
     ssize_t sent = write(clientSock, reqWithNewline.c_str(), reqWithNewline.size());
     if (sent < 0) {
@@ -53,9 +53,20 @@ std::string sendRequest(const std::string& socketPath, const std::string& reques
     std::string response;
     char buffer[1024];
     ssize_t n;
+    // Lese, bis ein Newline gefunden wird.
     while ((n = read(clientSock, buffer, sizeof(buffer))) > 0) {
         response.append(buffer, n);
+        if (response.find('\n') != std::string::npos)
+            break;
     }
+    // Entferne den Delimiter, falls gewünscht.
+    size_t pos = response.find('\n');
+    if (pos != std::string::npos) {
+        response = response.substr(0, pos);
+    }
+    // Wichtig: Nicht den Socket schließen, wenn du die Verbindung persistent halten möchtest.
+    // Hier schließt der Client den Socket aber trotzdem, weil in diesem Testclient wir
+    // nur eine einzelne Anfrage pro Verbindung senden.
     close(clientSock);
     return response;
 }
@@ -580,7 +591,7 @@ int main() {
                 };
                 std::string respStr = sendRequest(socketPath, req.dump());
                 json resp = json::parse(respStr);
-                std::cout << "Test20 - RAM Eviction SET " << i << " Response: " << resp.dump() << std::endl;
+                std::cout << "Test20 - RAM Eviction SET " << i << std::endl;
                 assert(resp["response"] == true);
             }
 
