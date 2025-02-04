@@ -115,7 +115,7 @@ int main() {
     std::thread serverThread(startServer);
 
     // Warte kurz, damit der Server gestartet ist (100-200 ms können ausreichend sein)
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
     // Verwende den in der Konfiguration festgelegten Socket-Pfad.
     const std::string socketPath = "/tmp/cache_socket";
@@ -502,7 +502,7 @@ int main() {
             assert(respTTLSet["response"] == true);
 
             // Warte länger als die TTL (z. B. 3 Sekunden)
-            std::this_thread::sleep_for(std::chrono::seconds(5));
+            std::this_thread::sleep_for(std::chrono::seconds(3));
 
             // GET KEY-Event: Der Key "keyTTL" sollte nun nicht mehr verfügbar sein.
             json reqTTLGet = {
@@ -596,7 +596,7 @@ int main() {
             }
 
             // Warte 5 Sekunden
-            std::this_thread::sleep_for(std::chrono::seconds(5));
+            std::this_thread::sleep_for(std::chrono::seconds(1));
 
             for (int i = 0; i < numEntries; i++) {
                 json req = {
@@ -667,6 +667,106 @@ int main() {
             std::cout << "Test22 - GET GROUP with empty group Response: " << resp.dump() << std::endl;
             // Es wird erwartet, dass der Server einen Fehler zurückliefert, da ein leerer Key nicht gültig ist.
             assert(resp.contains("error"));
+        }
+
+        // -----------------------------
+        // Test 23: Stresstest
+        // -----------------------------
+        {
+            constexpr int numEntries = 1000;
+            constexpr int numThreads = 100;
+
+            std::vector<std::string> keys(numEntries);
+            std::vector<std::string> values(numEntries);
+
+            // Zufällige Werte generieren
+            for (int i = 0; i < numEntries; i++) {
+                keys[i] = "stress_key_" + std::to_string(i);
+                values[i] = "stress_value_" + std::to_string(i);
+            }
+
+            std::cout << "\n[STRESS TEST] Starte Stresstest mit " << numEntries << " SET & GET Operationen..." << std::endl;
+            auto startTime = std::chrono::high_resolution_clock::now();
+
+            // SET-Operationen
+            auto setStartTime = std::chrono::high_resolution_clock::now();
+            for (int i = 0; i < numEntries; i++) {
+                json req = {
+                    {"id", "stress_set_" + std::to_string(i)},
+                    {"event", "SET"},
+                    {"flags", {{"persistent", false}, {"ttl", 3600}}}, // Temporäre Speicherung
+                    {"key", keys[i]},
+                    {"value", values[i]},
+                    {"group", "stressTest"}
+                };
+                std::string respStr = sendRequest(socketPath, req.dump());
+                json resp = json::parse(respStr);
+                assert(resp["response"] == true);
+            }
+            auto setEndTime = std::chrono::high_resolution_clock::now();
+
+            // GET-Operationen (sequentiell)
+            auto getStartTime = std::chrono::high_resolution_clock::now();
+            for (int i = 0; i < numEntries; i++) {
+                json req = {
+                    {"id", "stress_get_" + std::to_string(i)},
+                    {"event", "GET KEY"},
+                    {"key", keys[i]}
+                };
+                std::string respStr = sendRequest(socketPath, req.dump());
+                json resp = json::parse(respStr);
+                assert(resp["response"] == values[i]);
+            }
+            auto getEndTime = std::chrono::high_resolution_clock::now();
+
+            // Parallele GET-Operationen
+            auto parallelStartTime = std::chrono::high_resolution_clock::now();
+            std::vector<std::thread> threads;
+            std::mutex printMutex;
+
+            for (int i = 0; i < numThreads; i++) {
+                threads.emplace_back([i, &keys, &values, socketPath, &printMutex]() {
+                    for (int j = 0; j < numEntries / numThreads; j++) {
+                        int idx = (i * (numEntries / numThreads)) + j;
+                        json req = {
+                            {"id", "stress_parallel_get_" + std::to_string(idx)},
+                            {"event", "GET KEY"},
+                            {"key", keys[idx]}
+                        };
+                        std::string respStr = sendRequest(socketPath, req.dump());
+                        json resp = json::parse(respStr);
+                        assert(resp["response"] == values[idx]);
+                    }
+                });
+            }
+
+            for (auto& t : threads) {
+                if (t.joinable()) {
+                    t.join();
+                }
+            }
+            auto parallelEndTime = std::chrono::high_resolution_clock::now();
+
+            // Gesamtzeit messen
+            auto endTime = std::chrono::high_resolution_clock::now();
+
+            // Berechnung der Zeiten
+            double setTime = std::chrono::duration<double>(setEndTime - setStartTime).count();
+            double getTime = std::chrono::duration<double>(getEndTime - getStartTime).count();
+            double parallelTime = std::chrono::duration<double>(parallelEndTime - parallelStartTime).count();
+            double totalTime = std::chrono::duration<double>(endTime - startTime).count();
+
+            // Performance-Report
+            std::cout << "\n=== Stresstest Ergebnisse ===" << std::endl;
+            std::cout << "  SET-Operationen: " << numEntries << " Einträge in " << setTime << " Sekunden" << std::endl;
+            std::cout << "  GET-Operationen (sequentiell): " << numEntries << " Einträge in " << getTime << " Sekunden" << std::endl;
+            std::cout << "  GET-Operationen (parallel, " << numThreads << " Threads): " << numEntries << " Einträge in " << parallelTime << " Sekunden" << std::endl;
+            std::cout << "  Gesamtzeit für Stresstest: " << totalTime << " Sekunden" << std::endl;
+            std::cout << "=============================\n" << std::endl;
+
+            assert(setTime > 0);
+            assert(getTime > 0);
+            assert(parallelTime > 0);
         }
 
         std::cout << "Alle erweiterten Client-Tests erfolgreich bestanden!" << std::endl;

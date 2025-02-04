@@ -2,14 +2,27 @@
 #define DISKHANDLER_H
 
 #include "eventbus/EventBus.h"
+#include "storage/Message.h"  // The specific Message classes (SetEventMessage, etc.) should be defined here.
 #include <iostream>
 #include <mutex>
 #include <stdexcept>
 #include <string>
 #include <sqlite3.h>
-#include "storage/Message.h"  // Hier sollten die spezifischen Message-Klassen (SetEventMessage, etc.) definiert sein
 
-// RAII-Hilfsklasse für SQLite-Statements
+// ------------------------------
+// Logging Helpers and Macros
+// ------------------------------
+
+// Logging macros with a consistent layout.
+#define LOG_INFO(component, message) \
+std::cout <<"[INFO]" << " [" << component << "] " << message << std::endl;
+
+#define LOG_ERROR(component, message) \
+std::cout <<"[ERROR]" << " [" << component << "] " << message << std::endl;
+
+// ------------------------------
+// RAII Helper Class for SQLite Statements
+// ------------------------------
 class SQLiteStmt {
 public:
     SQLiteStmt(sqlite3* db, const char* sql)
@@ -29,7 +42,7 @@ public:
 
     sqlite3_stmt* get() const { return stmt_; }
 
-    // Optionale Methode zum Zurücksetzen des Statements
+    // Optional method to reset the statement.
     void reset() {
         if (stmt_) {
             sqlite3_reset(stmt_);
@@ -41,19 +54,23 @@ private:
     sqlite3_stmt* stmt_;
 };
 
+// ------------------------------
+// DiskHandler Class
+// ------------------------------
 class DiskHandler {
 public:
-    // Konstruktor: Öffnet die SQLite-Datenbank (bzw. erstellt sie, falls sie noch nicht existiert)
+    // Constructor: Opens (or creates, if it does not exist) the SQLite database.
     explicit DiskHandler(EventBus& eventBus, const std::string& dbFile = "disk_store.db")
         : eventBus_(eventBus)
     {
         int rc = sqlite3_open(dbFile.c_str(), &db_);
         if (rc != SQLITE_OK) {
-            std::cerr << "DiskHandler: Kann Datenbank nicht öffnen: " << sqlite3_errmsg(db_) << std::endl;
+            LOG_ERROR("DiskHandler", "Unable to open database: " << sqlite3_errmsg(db_));
             db_ = nullptr;
-            throw std::runtime_error("Fehler beim Öffnen der SQLite-Datenbank.");
+            throw std::runtime_error("Error opening SQLite database.");
         }
-        // Erstelle die Tabelle, falls sie noch nicht existiert
+
+        // Create the table if it does not exist.
         const char* createTableSQL = "CREATE TABLE IF NOT EXISTS store ("
                                      "key TEXT PRIMARY KEY, "
                                      "value TEXT, "
@@ -62,14 +79,14 @@ public:
         char* errMsg = nullptr;
         rc = sqlite3_exec(db_, createTableSQL, nullptr, nullptr, &errMsg);
         if (rc != SQLITE_OK) {
-            std::cerr << "DiskHandler: SQL-Fehler beim Erstellen der Tabelle: " << errMsg << std::endl;
+            LOG_ERROR("DiskHandler", "SQL error while creating table: " << errMsg);
             sqlite3_free(errMsg);
             sqlite3_close(db_);
             db_ = nullptr;
-            throw std::runtime_error("Fehler beim Erstellen der Tabelle in der SQLite-Datenbank.");
+            throw std::runtime_error("Error creating table in SQLite database.");
         }
 
-        // Registrierung der EventBus-Handler
+        // Register EventBus handlers.
         eventBus_.subscribe<SetEventMessage, SetResponseMessage>(HandlerID::DiskHandler,
             [this](const SetEventMessage& msg) -> SetResponseMessage {
                 return handleSetEvent(msg);
@@ -99,11 +116,14 @@ public:
                 return handleDeleteGroupEvent(msg);
             }
         );
+
+        LOG_INFO("DiskHandler", "Initialized and database '" << dbFile << "' opened successfully.");
     }
 
     ~DiskHandler() {
         if (db_) {
             sqlite3_close(db_);
+            LOG_INFO("DiskHandler", "Database connection closed.");
         }
     }
 
@@ -112,15 +132,13 @@ private:
     std::mutex mutex_;
     EventBus& eventBus_;
 
-    // Handler-Implementierung für SET-Events
+    // Handler implementation for SET events.
     SetResponseMessage handleSetEvent(const SetEventMessage& msg) {
         std::lock_guard<std::mutex> lock(mutex_);
-        // Beispiel für Transaktions-Management: In Batch-Situationen können mehrere SETs
-        // innerhalb einer Transaktion zusammengefasst werden.
         char* errMsg = nullptr;
         int rc = sqlite3_exec(db_, "BEGIN TRANSACTION;", nullptr, nullptr, &errMsg);
         if (rc != SQLITE_OK) {
-            std::cerr << "DiskHandler: Fehler beim Starten der Transaktion: " << errMsg << std::endl;
+            LOG_ERROR("DiskHandler", "Error starting transaction: " << errMsg);
             sqlite3_free(errMsg);
             throw std::runtime_error("SQLite transaction BEGIN error in SET.");
         }
@@ -128,35 +146,37 @@ private:
         try {
             SQLiteStmt stmt(db_, "INSERT OR REPLACE INTO store (key, value, group_name) VALUES (?, ?, ?);");
             sqlite3_bind_text(stmt.get(), 1, msg.key.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(stmt.get(), 2, msg.value.c_str(), -1, SQLITE_TRANSIENT);;
+            sqlite3_bind_text(stmt.get(), 2, msg.value.c_str(), -1, SQLITE_TRANSIENT);
             sqlite3_bind_text(stmt.get(), 3, msg.group.c_str(), -1, SQLITE_TRANSIENT);
 
             rc = sqlite3_step(stmt.get());
             if (rc != SQLITE_DONE) {
-                std::cerr << "DiskHandler: Fehler beim Ausführen des Statements: " << sqlite3_errmsg(db_) << std::endl;
+                LOG_ERROR("DiskHandler", "Error executing statement: " << sqlite3_errmsg(db_));
                 throw std::runtime_error("SQLite step error in SET.");
             }
-            // Commit der Transaktion
+            // Commit the transaction.
             rc = sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, &errMsg);
             if (rc != SQLITE_OK) {
-                std::cerr << "DiskHandler: Fehler beim Commit der Transaktion: " << errMsg << std::endl;
+                LOG_ERROR("DiskHandler", "Error committing transaction: " << errMsg);
                 sqlite3_free(errMsg);
                 throw std::runtime_error("SQLite transaction COMMIT error in SET.");
             }
         }
         catch (const std::exception& e) {
-            // Bei einem Fehler wird die Transaktion zurückgerollt
+            // Roll back the transaction upon error.
             sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, nullptr);
-            throw; // Exception weiterwerfen
+            LOG_ERROR("DiskHandler", "Transaction rolled back due to error: " << e.what());
+            throw; // Rethrow the exception.
         }
 
         SetResponseMessage resp;
         resp.id = msg.id;
         resp.response = true;
+        LOG_INFO("DiskHandler", "SET event successful for key: " << msg.key);
         return resp;
     }
 
-    // Handler-Implementierung für GET KEY-Events
+    // Handler implementation for GET KEY events.
     GetKeyResponseMessage handleGetKeyEvent(const GetKeyEventMessage& msg) {
         std::lock_guard<std::mutex> lock(mutex_);
         SQLiteStmt stmt(db_, "SELECT value FROM store WHERE key = ?;");
@@ -166,8 +186,11 @@ private:
         if (rc == SQLITE_ROW) {
             const unsigned char* text = sqlite3_column_text(stmt.get(), 0);
             value = text ? reinterpret_cast<const char*>(text) : "";
-        } else if (rc != SQLITE_DONE) {
-            std::cerr << "DiskHandler: Fehler beim Abrufen des Wertes: " << sqlite3_errmsg(db_) << std::endl;
+            LOG_INFO("DiskHandler", "GET KEY event: Key '" << msg.key << "' found.");
+        } else if (rc == SQLITE_DONE) {
+            LOG_INFO("DiskHandler", "GET KEY event: Key '" << msg.key << "' not found.");
+        } else {
+            LOG_ERROR("DiskHandler", "Error retrieving value: " << sqlite3_errmsg(db_));
             throw std::runtime_error("SQLite step error in GET KEY.");
         }
         GetKeyResponseMessage resp;
@@ -176,10 +199,9 @@ private:
         return resp;
     }
 
-    // Handler-Implementierung für GET GROUP-Events
+    // Handler implementation for GET GROUP events.
     GetGroupResponseMessage handleGetGroupEvent(const GetGroupEventMessage& msg) {
         std::lock_guard<std::mutex> lock(mutex_);
-        // Annahme: Schlüssel haben das Format "group:key"
         SQLiteStmt stmt(db_, "SELECT key, value FROM store WHERE group_name = ?;");
         sqlite3_bind_text(stmt.get(), 1, msg.group.c_str(), -1, SQLITE_TRANSIENT);
 
@@ -196,45 +218,47 @@ private:
             } else if (rc == SQLITE_DONE) {
                 break;
             } else {
-                std::cerr << "DiskHandler: Fehler beim Abrufen der Gruppe: " << sqlite3_errmsg(db_) << std::endl;
+                LOG_ERROR("DiskHandler", "Error retrieving group: " << sqlite3_errmsg(db_));
                 throw std::runtime_error("SQLite step error in GET GROUP.");
             }
         }
+        LOG_INFO("DiskHandler", "GET GROUP event: Returned " << resp.response.size() << " entries for group '" << msg.group << "'.");
         return resp;
     }
 
-    // Handler-Implementierung für DELETE KEY-Events
+    // Handler implementation for DELETE KEY events.
     DeleteKeyResponseMessage handleDeleteKeyEvent(const DeleteKeyEventMessage& msg) {
         std::lock_guard<std::mutex> lock(mutex_);
         SQLiteStmt stmt(db_, "DELETE FROM store WHERE key = ?;");
         sqlite3_bind_text(stmt.get(), 1, msg.key.c_str(), -1, SQLITE_TRANSIENT);
         int rc = sqlite3_step(stmt.get());
         if (rc != SQLITE_DONE) {
-            std::cerr << "DiskHandler: Fehler beim Ausführen des DELETE: " << sqlite3_errmsg(db_) << std::endl;
+            LOG_ERROR("DiskHandler", "Error executing DELETE: " << sqlite3_errmsg(db_));
             throw std::runtime_error("SQLite step error in DELETE KEY.");
         }
         int changes = sqlite3_changes(db_);
         DeleteKeyResponseMessage resp;
         resp.id = msg.id;
         resp.response = (changes > 0) ? 1 : 0;
+        LOG_INFO("DiskHandler", "DELETE KEY event: Key '" << msg.key << "' deletion " << ((changes > 0) ? "succeeded." : "failed."));
         return resp;
     }
 
-    // Handler-Implementierung für DELETE GROUP-Events
+    // Handler implementation for DELETE GROUP events.
     DeleteGroupResponseMessage handleDeleteGroupEvent(const DeleteGroupEventMessage& msg) {
         std::lock_guard<std::mutex> lock(mutex_);
-        // Annahme: Schlüssel haben das Format "group:key"
         SQLiteStmt stmt(db_, "DELETE FROM store WHERE group_name = ?;");
         sqlite3_bind_text(stmt.get(), 1, msg.group.c_str(), -1, SQLITE_TRANSIENT);
         int rc = sqlite3_step(stmt.get());
         if (rc != SQLITE_DONE) {
-            std::cerr << "DiskHandler: Fehler beim Ausführen des DELETE GROUP: " << sqlite3_errmsg(db_) << std::endl;
+            LOG_ERROR("DiskHandler", "Error executing DELETE GROUP: " << sqlite3_errmsg(db_));
             throw std::runtime_error("SQLite step error in DELETE GROUP.");
         }
         int changes = sqlite3_changes(db_);
         DeleteGroupResponseMessage resp;
         resp.id = msg.id;
         resp.response = changes;
+        LOG_INFO("DiskHandler", "DELETE GROUP event: Removed " << changes << " entries for group '" << msg.group << "'.");
         return resp;
     }
 };

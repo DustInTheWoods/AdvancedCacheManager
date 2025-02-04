@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y \
     libsqlite3-dev \
     libgtest-dev \
     nlohmann-json3-dev \
+    libboost-all-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Optional: Benutzer anlegen, um nicht als root zu arbeiten

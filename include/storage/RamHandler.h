@@ -2,6 +2,7 @@
 #define RAMHANDLER_H
 
 #include "eventbus/EventBus.h"
+#include "storage/Message.h" // The corresponding Message classes for the RamHandler should be defined here.
 #include <iostream>
 #include <unordered_map>
 #include <vector>
@@ -12,36 +13,50 @@
 #include <condition_variable>
 #include <algorithm>
 #include <map>
-#include "storage/Message.h" // Hier sollten die entsprechenden Message-Klassen für den RamHandler definiert sein
+
+// ------------------------------
+// Logging Helpers and Macros
+// ------------------------------
+
+// Logging macros with a consistent layout.
+#define LOG_INFO(component, message) \
+std::cout <<"[INFO]" << " [" << component << "] " << message << std::endl;
+
+#define LOG_ERROR(component, message) \
+std::cout <<"[ERROR]" << " [" << component << "] " << message << std::endl;
+
+// ------------------------------
+// End Logging Helpers and Macros
+// ------------------------------
 
 using Clock = std::chrono::steady_clock;
 
-// Vorwärtsdeklaration für den Iteratortyp der Eviction-Queue
+// Forward declaration for the iterator type of the eviction queue.
 using EvictionIterator = std::multimap<Clock::time_point, std::string>::iterator;
 
-// Struktur, die einen Eintrag im RAM speichert
+// Structure that stores an entry in RAM.
 struct RamEntry {
     std::string value;
-    // Gruppe für spätere suche
+    // Group used for later searches.
     std::string group;
-    // Zeitpunkt der Einfügung (für Eviction)
+    // Insertion time (for eviction).
     Clock::time_point insertionTime;
-    // Ablaufzeitpunkt; falls TTL <= 0, wird expirationTime auf einen weit entfernten Zeitpunkt gesetzt.
+    // Expiration time; if TTL <= 0, expirationTime is set to a distant future time.
     Clock::time_point expirationTime;
-    // Iterator in der Eviction-Queue
+    // Iterator in the eviction queue.
     EvictionIterator evictionIt;
 };
 
 class RamHandler {
 public:
-    // Konstruktor: Neben dem EventBus wird auch die maximale Größe (in MB) übergeben.
+    // Constructor: Besides the EventBus, the maximum size (in MB) is provided.
     explicit RamHandler(EventBus& eventBus, size_t maxSizeMB = 10)
         : eventBus_(eventBus)
         , maxSizeBytes_(maxSizeMB * 1024 * 1024)
         , currentUsage_(0)
         , stopThread_(false)
     {
-        // Registrierung der Handler-Funktionen beim EventBus
+        // Register handler functions with the EventBus.
         eventBus_.subscribe<SetEventMessage, SetResponseMessage>(HandlerID::RamHandler,
             [this](const SetEventMessage& msg) -> SetResponseMessage {
                 return handleSetEvent(msg);
@@ -78,8 +93,9 @@ public:
             }
         );
 
-        // Starte den Hintergrundthread zur TTL-Überprüfung und Eviction
+        // Start the background thread for TTL checking and eviction.
         bgThread_ = std::thread(&RamHandler::backgroundChecker, this);
+        LOG_INFO("RamHandler", "Initialized with maximum size " << maxSizeBytes_ << " bytes.");
     }
 
     ~RamHandler() {
@@ -91,43 +107,45 @@ public:
         if (bgThread_.joinable()) {
             bgThread_.join();
         }
+        LOG_INFO("RamHandler", "Background thread stopped and resources cleaned up.");
     }
 
 private:
-    // Interner Speicher für Schlüssel-Wert-Paare
+    // Internal storage for key-value pairs.
     std::unordered_map<std::string, RamEntry> store_;
-    // Mutex zum Schutz des Speichers und weiterer Membervariablen
+    // Mutex to protect the store and other member variables.
     std::mutex mutex_;
-    // Eviction-Queue: sortiert nach Einfügezeit (älteste zuerst)
+    // Eviction queue: sorted by insertion time (oldest first).
     std::multimap<Clock::time_point, std::string> evictionQueue_;
-    // EventBus-Referenz
+    // EventBus reference.
     EventBus& eventBus_;
-    // Maximale Größe in Byte
+    // Maximum size in bytes.
     size_t maxSizeBytes_;
-    // Aktueller (inkrementell verwalteter) Speicherverbrauch (Summe der Schlüssel- und Wertlängen)
+    // Current (incrementally managed) memory usage (sum of key and value lengths).
     size_t currentUsage_;
 
-    // Hintergrundthread und Synchronisation
+    // Background thread and synchronization.
     std::thread bgThread_;
     std::condition_variable cv_;
     bool stopThread_;
 
     // ------------------------------
-    // Handler-Implementierungen
+    // Handler Implementations
     // ------------------------------
 
-    // Verarbeitet ein SET‑Event: Speichert den übergebenen Schlüssel und Wert im RAM.
+    // Handles a SET event: stores the provided key and value in RAM.
     SetResponseMessage handleSetEvent(const SetEventMessage& msg) {
         std::lock_guard<std::mutex> lock(mutex_);
         auto now = Clock::now();
         size_t entrySize = msg.key.size() + msg.value.size();
 
-        // Falls der Schlüssel bereits existiert, entferne den alten Eintrag (und passe currentUsage_ an)
+        // If the key already exists, remove the old entry and adjust currentUsage_.
         auto it = store_.find(msg.key);
         if (it != store_.end()) {
             currentUsage_ -= calculateExactEntryUsage(it->first, it->second);
             evictionQueue_.erase(it->second.evictionIt);
             store_.erase(it);
+            LOG_INFO("RamHandler", "Overwriting existing key: " << msg.key);
         }
 
         RamEntry entry;
@@ -137,58 +155,56 @@ private:
         if (msg.ttl > 0) {
             entry.expirationTime = now + std::chrono::seconds(msg.ttl);
         } else {
-            // Falls ttl <= 0, setze expirationTime auf einen weit entfernten Zeitpunkt
+            // If ttl <= 0, set expirationTime to a distant future.
             entry.expirationTime = Clock::time_point::max();
         }
-        // Füge in die Eviction-Queue ein und speichere den Iterator im Eintrag
-        auto evIt = evictionQueue_.insert({ entry.insertionTime, msg.key});
+        // Insert into the eviction queue and store the iterator in the entry.
+        auto evIt = evictionQueue_.insert({ entry.insertionTime, msg.key });
         entry.evictionIt = evIt;
 
-        currentUsage_ +=  calculateExactEntryUsage(msg.key, &entry);
+        currentUsage_ += calculateExactEntryUsage(msg.key, entry);
         store_[msg.key] = std::move(entry);
 
+        LOG_INFO("RamHandler", "SET event: Stored key '" << msg.key << "'; current usage: " << currentUsage_);
         SetResponseMessage resp;
         resp.id = msg.id;
-        resp.response = true; // Erfolg
+        resp.response = true; // Success
         return resp;
     }
 
-    // Verarbeitet ein GET KEY‑Event: Liefert den zugehörigen Wert zurück (oder einen leeren String, falls nicht gefunden oder abgelaufen).
+    // Handles a GET KEY event: returns the corresponding value (or an empty string if not found or expired).
     GetKeyResponseMessage handleGetKeyEvent(const GetKeyEventMessage& msg) {
         std::lock_guard<std::mutex> lock(mutex_);
         GetKeyResponseMessage resp;
         resp.id = msg.id;
-        auto it = store_.find(msg.key);
         auto now = Clock::now();
+        auto it = store_.find(msg.key);
         if (it != store_.end()) {
             resp.response = it->second.value;
+            LOG_INFO("RamHandler", "GET KEY event: Key '" << msg.key << "' found.");
         } else {
             resp.response = "";
+            LOG_INFO("RamHandler", "GET KEY event: Key '" << msg.key << "' not found.");
         }
         return resp;
     }
 
-    // Verarbeitet ein GET GROUP‑Event: Liefert alle Schlüssel‑Wert-Paare der angegebenen Gruppe.
-    // Annahme: Schlüssel werden im Format "gruppe:schluessel" abgelegt.
+    // Handles a GET GROUP event: returns all key-value pairs belonging to the specified group.
     GetGroupResponseMessage handleGetGroupEvent(const GetGroupEventMessage& msg) {
         std::lock_guard<std::mutex> lock(mutex_);
         GetGroupResponseMessage resp;
         resp.id = msg.id;
 
-        auto now = Clock::now();
-        // Durchlaufe alle Einträge im Store (Optimierung: Für sehr große Stores könnte ein zusätzlicher Index helfen)
-        for (auto it = store_.begin(); it != store_.end(); ) {
+        for (auto it = store_.begin(); it != store_.end(); ++it) {
             if (it->second.group == msg.group) {
                 resp.response.push_back({ it->first, it->second.value });
-                ++it;
-            } else {
-                ++it;
             }
         }
+        LOG_INFO("RamHandler", "GET GROUP event: Found " << resp.response.size() << " entries for group '" << msg.group << "'.");
         return resp;
     }
 
-    // Verarbeitet ein DELETE KEY‑Event: Löscht den angegebenen Schlüssel aus dem RAM.
+    // Handles a DELETE KEY event: removes the specified key from RAM.
     DeleteKeyResponseMessage handleDeleteKeyEvent(const DeleteKeyEventMessage& msg) {
         std::lock_guard<std::mutex> lock(mutex_);
         DeleteKeyResponseMessage resp;
@@ -199,13 +215,15 @@ private:
             evictionQueue_.erase(it->second.evictionIt);
             store_.erase(it);
             resp.response = 1;
+            LOG_INFO("RamHandler", "DELETE KEY event: Key '" << msg.key << "' deleted.");
         } else {
             resp.response = 0;
+            LOG_INFO("RamHandler", "DELETE KEY event: Key '" << msg.key << "' not found.");
         }
         return resp;
     }
 
-    // Verarbeitet ein DELETE GROUP‑Event: Löscht alle Schlüssel der angegebenen Gruppe.
+    // Handles a DELETE GROUP event: removes all keys belonging to the specified group.
     DeleteGroupResponseMessage handleDeleteGroupEvent(const DeleteGroupEventMessage& msg) {
         std::lock_guard<std::mutex> lock(mutex_);
         DeleteGroupResponseMessage resp;
@@ -223,36 +241,34 @@ private:
             }
         }
         resp.response = count;
+        LOG_INFO("RamHandler", "DELETE GROUP event: Removed " << count << " entries for group '" << msg.group << "'.");
         return resp;
     }
 
-    ListEventReponseMessage handleGetGroupEvent(const GetGroupEventMessage& msg) {
+    // Handles a LIST event: retrieves all key-value entries stored in RAM.
+    ListEventReponseMessage handleListEvent(const ListEventMessage& msg) {
         std::lock_guard<std::mutex> lock(mutex_);
         ListEventReponseMessage resp;
         resp.id = msg.id;
 
-        auto now = Clock::now();
-        // Durchlaufe alle Einträge im Store (Optimierung: Für sehr große Stores könnte ein zusätzlicher Index helfen)
-        for (auto& it = store_.begin(); it != store_.end(); ) {
+        // Iterate over all entries in the store.
+        for (auto it = store_.begin(); it != store_.end(); ++it) {
             StorageEntry entry;
-
             entry.key = it->first;
             entry.value = it->second.value;
             entry.group = it->second.group;
-
-            resp.response.push_back(entry)
+            resp.response.push_back(entry);
         }
+        LOG_INFO("RamHandler", "LIST event: Returned " << resp.response.size() << " entries.");
         return resp;
     }
 
-    // Berechnet den (approximativen) Speicherverbrauch des internen Speichers (store_).
+    // Calculates the (approximate) memory usage of a store entry.
     size_t calculateExactEntryUsage(const std::string& key, const RamEntry& entry) {
         size_t usage = 0;
-        
-        // 1. Schlüssel (std::string)
-        //    - Statischer Overhead des String-Objekts:
+
+        // 1. Key (std::string)
         usage += sizeof(key);
-        //    - Dynamisch allokierter Speicher im internen Puffer:
         usage += key.capacity() * sizeof(char);
 
         // 2. entry.value (std::string)
@@ -263,23 +279,21 @@ private:
         usage += sizeof(entry.group);
         usage += entry.group.capacity() * sizeof(char);
 
-        // 4. Weitere Felder in RamEntry:
-        //    insertionTime und expirationTime (hier nehmen wir deren sizeof() an,
-        //    da sie intern typischerweise als std::chrono::time_point implementiert sind)
+        // 4. Additional fields in RamEntry:
         usage += sizeof(entry.insertionTime);
         usage += sizeof(entry.expirationTime);
 
-        // 5. evictionIt (ein Iterator, meist ein Zeiger oder ähnliches)
+        // 5. evictionIt (an iterator, typically a pointer or similar)
         usage += sizeof(entry.evictionIt);
 
         return usage;
     }
 
     // ------------------------------
-    // Hintergrundthread: TTL-Checker und size-based Eviction
+    // Background Thread: TTL Checker and Size-based Eviction
     // ------------------------------
     void backgroundChecker() {
-        // Intervall (in Millisekunden) zwischen Überprüfungen
+        // Interval (in milliseconds) between checks.
         const std::chrono::milliseconds interval(500);
 
         while (true) {
@@ -290,10 +304,10 @@ private:
                 }
                 auto now = Clock::now();
 
-                // --- 1. TTL-Überprüfung ---
+                // --- 1. TTL Check ---
                 for (auto it = store_.begin(); it != store_.end(); ) {
                     if (now >= it->second.expirationTime) {
-                        std::cout << "[TTL Check] Removing expired entry: " << it->first << std::endl;
+                        LOG_INFO("RamHandler", "TTL Check: Removing expired entry: " << it->first);
                         currentUsage_ -= calculateExactEntryUsage(it->first, it->second);
                         evictionQueue_.erase(it->second.evictionIt);
                         it = store_.erase(it);
@@ -304,24 +318,25 @@ private:
 
                 // --- 2. Size-based Eviction ---
                 while (currentUsage_ > maxSizeBytes_ && !evictionQueue_.empty()) {
-                    // Der älteste Eintrag (gemäß Einfügezeit) befindet sich am Anfang der Queue
+                    // The oldest entry (by insertion time) is at the beginning of the queue.
                     auto evIt = evictionQueue_.begin();
                     std::string key = evIt->second;
-                    std::cout << "[Size Eviction] Usage (" << currentUsage_ 
-                          << ") exceeds limit (" << maxSizeBytes_ 
-                          << "). Removing entry: " << key << std::endl;
+                    LOG_INFO("RamHandler", "Size Eviction: Usage (" << currentUsage_
+                             << ") exceeds limit (" << maxSizeBytes_
+                             << "). Removing entry: " << key);
                     auto storeIt = store_.find(key);
                     if (storeIt != store_.end()) {
-                        currentUsage_ -= calculateExactEntryUsage(it->first, it->second);
+                        currentUsage_ -= calculateExactEntryUsage(storeIt->first, storeIt->second);
                         evictionQueue_.erase(evIt);
                         store_.erase(storeIt);
                     } else {
-                        // Sollte nicht passieren, aber zur Sicherheit:
+                        // Safety check: should not happen, but erase the iterator regardless.
                         evictionQueue_.erase(evIt);
                     }
                 }
-            } // Lock freigeben
+            } // Release lock
         }
+        LOG_INFO("RamHandler", "Background checker thread exiting.");
     }
 };
 

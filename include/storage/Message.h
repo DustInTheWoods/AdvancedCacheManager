@@ -77,7 +77,7 @@ struct DeleteGroupResponseMessage : public Message {
 };
 
 struct StorageEntry {
-    std::string key:
+    std::string key;
     std::string value;
     std::string group;
 };
