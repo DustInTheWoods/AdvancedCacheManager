@@ -46,6 +46,12 @@ public:
                 return handleDeleteGroupEvent(msg);
             }
         );
+
+        eventBus_.subscribe<ListEventMessage, ListEventReponseMessage>(HandlerID::StorageHandler,
+            [this](const ListEventMessage& msg) -> ListEventReponseMessage {
+                return handleListEvent(msg);
+            }
+        );
     }
 
 
@@ -151,6 +157,24 @@ public:
         return resp;
     }
 
+    // GET KEY-Event: Zuerst im RAM suchen, bei leerer Antwort dann den DiskHandler abfragen.
+    ListEventReponseMessage handleListEvent(const ListEventMessage& msg) {
+        auto diskResult = eventBus_.send<ListEventReponseMessage>(HandlerID::DiskHandler, msg);
+        auto ramResult = eventBus_.send<ListEventReponseMessage>(HandlerID::RamHandler, msg);
+
+        ListEventReponseMessage ramResp = ramResult.get();
+        std::cout << "Found " << ramResp.result << " entries in Ram" << std::endl;
+        ListEventReponseMessage diskResp = diskResult.get();
+        std::cout << "Found " << diskResp.result << " entries in Disk" << std::endl;
+
+        ListEventReponseMessage result;
+        result.id = msg.id;
+        diskResp.response.insert(diskResp.response.begin(), ramResp.response.begin(), ramResp.response.end());
+        result.response = diskResp.response;
+
+        return result;
+        }
+    }
 private:
     EventBus& eventBus_;
 };

@@ -72,6 +72,12 @@ public:
             }
         );
 
+        eventBus_.subscribe<ListEventMessage, ListEventReponseMessage>(HandlerID::RamHandler,
+            [this](const ListEventMessage& msg) -> ListEventReponseMessage {
+                return handleListEvent(msg);
+            }
+        );
+
         // Starte den Hintergrundthread zur TTL-Überprüfung und Eviction
         bgThread_ = std::thread(&RamHandler::backgroundChecker, this);
     }
@@ -119,7 +125,7 @@ private:
         // Falls der Schlüssel bereits existiert, entferne den alten Eintrag (und passe currentUsage_ an)
         auto it = store_.find(msg.key);
         if (it != store_.end()) {
-            currentUsage_ -= (it->first.size() + it->second.value.size());
+            currentUsage_ -= calculateExactEntryUsage(it->first, it->second);
             evictionQueue_.erase(it->second.evictionIt);
             store_.erase(it);
         }
@@ -135,11 +141,11 @@ private:
             entry.expirationTime = Clock::time_point::max();
         }
         // Füge in die Eviction-Queue ein und speichere den Iterator im Eintrag
-        auto evIt = evictionQueue_.insert({ entry.insertionTime, msg.key });
+        auto evIt = evictionQueue_.insert({ entry.insertionTime, msg.key});
         entry.evictionIt = evIt;
 
+        currentUsage_ +=  calculateExactEntryUsage(msg.key, &entry);
         store_[msg.key] = std::move(entry);
-        currentUsage_ += entrySize;
 
         SetResponseMessage resp;
         resp.id = msg.id;
@@ -155,16 +161,7 @@ private:
         auto it = store_.find(msg.key);
         auto now = Clock::now();
         if (it != store_.end()) {
-            // Überprüfe, ob der Eintrag abgelaufen ist
-            if (now < it->second.expirationTime) {
-                resp.response = it->second.value;
-            } else {
-                // Eintrag ist abgelaufen, entferne ihn und liefere leeren String
-                currentUsage_ -= (it->first.size() + it->second.value.size());
-                evictionQueue_.erase(it->second.evictionIt);
-                store_.erase(it);
-                resp.response = "";
-            }
+            resp.response = it->second.value;
         } else {
             resp.response = "";
         }
@@ -182,15 +179,8 @@ private:
         // Durchlaufe alle Einträge im Store (Optimierung: Für sehr große Stores könnte ein zusätzlicher Index helfen)
         for (auto it = store_.begin(); it != store_.end(); ) {
             if (it->second.group == msg.group) {
-                if (now < it->second.expirationTime) {
-                    resp.response.push_back({ it->first, it->second.value });
-                    ++it;
-                } else {
-                    // Abgelaufener Eintrag entfernen
-                    currentUsage_ -= (it->first.size() + it->second.value.size());
-                    evictionQueue_.erase(it->second.evictionIt);
-                    it = store_.erase(it);
-                }
+                resp.response.push_back({ it->first, it->second.value });
+                ++it;
             } else {
                 ++it;
             }
@@ -205,7 +195,7 @@ private:
         resp.id = msg.id;
         auto it = store_.find(msg.key);
         if (it != store_.end()) {
-            currentUsage_ -= (it->first.size() + it->second.value.size());
+            currentUsage_ -= calculateExactEntryUsage(it->first, it->second);
             evictionQueue_.erase(it->second.evictionIt);
             store_.erase(it);
             resp.response = 1;
@@ -224,7 +214,7 @@ private:
 
         for (auto it = store_.begin(); it != store_.end(); ) {
             if (it->second.group == msg.group) {
-                currentUsage_ -= (it->first.size() + it->second.value.size());
+                currentUsage_ -= calculateExactEntryUsage(it->first, it->second);
                 evictionQueue_.erase(it->second.evictionIt);
                 it = store_.erase(it);
                 ++count;
@@ -234,6 +224,55 @@ private:
         }
         resp.response = count;
         return resp;
+    }
+
+    ListEventReponseMessage handleGetGroupEvent(const GetGroupEventMessage& msg) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        ListEventReponseMessage resp;
+        resp.id = msg.id;
+
+        auto now = Clock::now();
+        // Durchlaufe alle Einträge im Store (Optimierung: Für sehr große Stores könnte ein zusätzlicher Index helfen)
+        for (auto& it = store_.begin(); it != store_.end(); ) {
+            StorageEntry entry;
+
+            entry.key = it->first;
+            entry.value = it->second.value;
+            entry.group = it->second.group;
+
+            resp.response.push_back(entry)
+        }
+        return resp;
+    }
+
+    // Berechnet den (approximativen) Speicherverbrauch des internen Speichers (store_).
+    size_t calculateExactEntryUsage(const std::string& key, const RamEntry& entry) {
+        size_t usage = 0;
+        
+        // 1. Schlüssel (std::string)
+        //    - Statischer Overhead des String-Objekts:
+        usage += sizeof(key);
+        //    - Dynamisch allokierter Speicher im internen Puffer:
+        usage += key.capacity() * sizeof(char);
+
+        // 2. entry.value (std::string)
+        usage += sizeof(entry.value);
+        usage += entry.value.capacity() * sizeof(char);
+
+        // 3. entry.group (std::string)
+        usage += sizeof(entry.group);
+        usage += entry.group.capacity() * sizeof(char);
+
+        // 4. Weitere Felder in RamEntry:
+        //    insertionTime und expirationTime (hier nehmen wir deren sizeof() an,
+        //    da sie intern typischerweise als std::chrono::time_point implementiert sind)
+        usage += sizeof(entry.insertionTime);
+        usage += sizeof(entry.expirationTime);
+
+        // 5. evictionIt (ein Iterator, meist ein Zeiger oder ähnliches)
+        usage += sizeof(entry.evictionIt);
+
+        return usage;
     }
 
     // ------------------------------
@@ -254,7 +293,8 @@ private:
                 // --- 1. TTL-Überprüfung ---
                 for (auto it = store_.begin(); it != store_.end(); ) {
                     if (now >= it->second.expirationTime) {
-                        currentUsage_ -= (it->first.size() + it->second.value.size());
+                        std::cout << "[TTL Check] Removing expired entry: " << it->first << std::endl;
+                        currentUsage_ -= calculateExactEntryUsage(it->first, it->second);
                         evictionQueue_.erase(it->second.evictionIt);
                         it = store_.erase(it);
                     } else {
@@ -267,9 +307,12 @@ private:
                     // Der älteste Eintrag (gemäß Einfügezeit) befindet sich am Anfang der Queue
                     auto evIt = evictionQueue_.begin();
                     std::string key = evIt->second;
+                    std::cout << "[Size Eviction] Usage (" << currentUsage_ 
+                          << ") exceeds limit (" << maxSizeBytes_ 
+                          << "). Removing entry: " << key << std::endl;
                     auto storeIt = store_.find(key);
                     if (storeIt != store_.end()) {
-                        currentUsage_ -= (storeIt->first.size() + storeIt->second.value.size());
+                        currentUsage_ -= calculateExactEntryUsage(it->first, it->second);
                         evictionQueue_.erase(evIt);
                         store_.erase(storeIt);
                     } else {

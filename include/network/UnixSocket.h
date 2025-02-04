@@ -184,6 +184,23 @@ void handleClient(int clientSocket) {
                     std::cout << "Sending response: " << respStr.substr(0, 100) << "..." << std::endl;
                     write(clientSocket, respStr.c_str(), respStr.size());
 
+                } else if (eventType == "LIST") {
+                    ListEventMessage msg; 
+
+                    msg.id = j.at("id").get<std::string>();
+
+                    auto result = eventBus_.send<ListEventResponseMessage>(HandlerID.StorageHandler, msg).get();
+
+                    json repJson;
+                    respJson["id"] = result.id;
+                    respJson["response"] = result.response;
+                    std::string respStr = respJson.dump()+ "\n";
+
+                    std::cout << "Sending response: " << respStr.substr(0, 100) << "..." << std::endl;
+                    write(clientSocket, respStr.c_str(), respStr.size());
+
+                }
+
                 } else {
                     // Unbekannter Event-Typ
                     json errorJson;
@@ -206,6 +223,7 @@ void handleClient(int clientSocket) {
         std::cerr << "Fehler in handleClient: " << e.what() << std::endl;
     }
     // Schließe den Socket, wenn die Schleife beendet wird
+    std::cout << "Connection to client: " << clientSocket << "closed" << std::endl;
     close(clientSocket);
 }
 

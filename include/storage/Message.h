@@ -38,6 +38,10 @@ struct DeleteGroupEventMessage : public Message {
     std::string group;
 };
 
+struct ListEventMessage : public Message {
+    std::string id;
+};
+
 // ======================
 // Response–Nachrichten
 // ======================
@@ -72,5 +76,15 @@ struct DeleteGroupResponseMessage : public Message {
     int response;  // z. B. 1 oder 0
 };
 
+struct StorageEntry {
+    std::string key:
+    std::string value;
+    std::string group;
+};
+
+struct ListEventReponseMessage : public Message {
+    std::string id;
+    std::vector<StorageEntry> response;
+};
 
 #endif //SOCKETCONNECTION_H
